@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Agentic Voting Advisor</title>
+</head>
+<body>
+  <h1>Agentic Voting Advisor</h1>
+  <div id="questionnaire"></div>
+  <button id="submitAnswers">Submit Answers</button>
+  <div id="result"></div>
+  <button id="voteButton" style="display:none;">Vote on Snapshot</button>
+
+  <script>
+    let bestParty = null;
+    // Load questions from backend
+    fetch('/api/questions')
+      .then(res => res.json())
+      .then(questions => {
+        const container = document.getElementById('questionnaire');
+        if (questions.error) {
+          container.innerText = questions.error;
+          return;
+        }
+        questions.forEach(q => {
+          let div = document.createElement('div');
+          div.innerHTML = `<p>${q.text}</p>`;
+          q.options.forEach(opt => {
+            div.innerHTML += `<label>
+              <input type="radio" name="q${q.id}" value="${opt}"> ${opt}
+            </label>`;
+          });
+          div.innerHTML += `<br><textarea placeholder="Additional notes" name="notes${q.id}"></textarea>`;
+          container.appendChild(div);
+        });
+      });
+
+    // Submit answers for evaluation
+    document.getElementById('submitAnswers').addEventListener('click', () => {
+      const answers = {};
+      document.querySelectorAll('#questionnaire > div').forEach(div => {
+        const questionText = div.querySelector('p').innerText;
+        const selected = div.querySelector('input[type="radio"]:checked');
+        const note = div.querySelector('textarea').value;
+        answers[questionText] = { answer: selected ? selected.value : null, note: note };
+      });
+      fetch('/api/submit_answers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ answers })
+      })
+      .then(res => res.json())
+      .then(data => {
+        bestParty = data.best_party;
+        document.getElementById('result').innerText = "Recommended party: " + bestParty;
+        document.getElementById('voteButton').style.display = 'block';
+      });
+    });
+
+    // Cast the vote on Snapshot
+    document.getElementById('voteButton').addEventListener('click', () => {
+      fetch('/api/vote', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ best_party: bestParty })
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('result').innerText = "Vote result: " + JSON.stringify(data);
+      });
+    });
+  </script>
+</body>
+</html>
