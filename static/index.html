@@ -3,42 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <title>Agentic Voting Advisor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #eef;
+    }
+    #container {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      padding: 20px;
+    }
+    #questionnaireContainer, #voteStatusContainer {
+      width: 48%;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      background-color: #fff;
+      box-sizing: border-box;
+    }
+    #voteStatusContainer {
+      background-color: #f9f9f9;
+    }
+    #statusLog {
+      white-space: pre-wrap;
+      border: 1px solid #aaa;
+      padding: 10px;
+      margin-top: 20px;
+      background-color: #fff;
+      height: 150px;
+      overflow-y: auto;
+    }
+    .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 10px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    textarea {
+      margin-top: 10px;
+      width: 100%;
+      min-height: 50px;
+      box-sizing: border-box;
+    }
+    .questionBlock {
+      margin-bottom: 20px;
+    }
+  </style>
 </head>
 <body>
-  <h1>Agentic Voting Advisor</h1>
-  <div id="questionnaire"></div>
-  <button id="submitAnswers">Submit Answers</button>
-  <div id="result"></div>
-  <button id="voteButton" style="display:none;">Vote on Snapshot</button>
-
+  <h1 style="text-align: center;">Agentic Voting Advisor</h1>
+  <div id="container">
+    <div id="questionnaireContainer">
+      <h2>Questionnaire</h2>
+      <div id="questionnaireLoading">
+        <span>Loading questions...</span>
+        <div class="spinner"></div>
+      </div>
+      <div id="questionnaire" style="display: none;"></div>
+      <button id="submitAnswers" style="display: none;">Submit Answers</button>
+    </div>
+    <div id="voteStatusContainer">
+      <h2>Vote Status</h2>
+      <div id="result"></div>
+      <div id="statusLog"></div>
+      <div id="voteLoading" style="display: none;">
+        <span>Processing vote...</span>
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+  
   <script>
-    let bestParty = null;
-    // Load questions from backend
+    function logStatus(message) {
+      const statusDiv = document.getElementById("statusLog");
+      statusDiv.textContent += message + "\n";
+    }
+    
+    function showElement(id, show) {
+      document.getElementById(id).style.display = show ? "block" : "none";
+    }
+    
+    // Load questionnaire from /api/questions
     fetch('/api/questions')
       .then(res => res.json())
       .then(questions => {
         const container = document.getElementById('questionnaire');
         if (questions.error) {
           container.innerText = questions.error;
+          logStatus("Error loading questionnaire: " + questions.error);
           return;
         }
         questions.forEach(q => {
           let div = document.createElement('div');
+          div.className = "questionBlock";
           div.innerHTML = `<p>${q.text}</p>`;
           q.options.forEach(opt => {
-            div.innerHTML += `<label>
+            div.innerHTML += `<label style="margin-right: 10px;">
               <input type="radio" name="q${q.id}" value="${opt}"> ${opt}
             </label>`;
           });
           div.innerHTML += `<br><textarea placeholder="Additional notes" name="notes${q.id}"></textarea>`;
           container.appendChild(div);
         });
-      });
+        logStatus("Questionnaire loaded.");
+        showElement("questionnaireLoading", false);
+        showElement("questionnaire", true);
+        showElement("submitAnswers", true);
+      })
+      .catch(err => logStatus("Error loading questionnaire: " + err));
 
-    // Submit answers for evaluation
+    // When "Submit Answers" is clicked:
     document.getElementById('submitAnswers').addEventListener('click', () => {
+      logStatus("Submitting answers...");
       const answers = {};
-      document.querySelectorAll('#questionnaire > div').forEach(div => {
+      document.querySelectorAll('.questionBlock').forEach(div => {
         const questionText = div.querySelector('p').innerText;
         const selected = div.querySelector('input[type="radio"]:checked');
         const note = div.querySelector('textarea').value;
@@ -51,23 +147,29 @@
       })
       .then(res => res.json())
       .then(data => {
-        bestParty = data.best_party;
-        document.getElementById('result').innerText = "Recommended party: " + bestParty;
-        document.getElementById('voteButton').style.display = 'block';
-      });
-    });
-
-    // Cast the vote on Snapshot
-    document.getElementById('voteButton').addEventListener('click', () => {
-      fetch('/api/vote', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ best_party: bestParty })
+        const recommended = data.best_party;
+        logStatus("Evaluation complete. Recommended party: " + recommended);
+        document.getElementById('result').innerText = "Recommended party: " + recommended;
+        logStatus("Casting vote for " + recommended + "...");
+        showElement("voteLoading", true);
+        // Automatically cast vote using the recommended party.
+        fetch('/api/vote', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ best_party: recommended })
+        })
+        .then(res => res.json())
+        .then(voteData => {
+          logStatus("Vote cast. Vote result: " + JSON.stringify(voteData));
+          document.getElementById('result').innerText += "\nVote result: " + JSON.stringify(voteData);
+          showElement("voteLoading", false);
+        })
+        .catch(err => {
+          logStatus("Error casting vote: " + err);
+          showElement("voteLoading", false);
+        });
       })
-      .then(res => res.json())
-      .then(data => {
-        document.getElementById('result').innerText = "Vote result: " + JSON.stringify(data);
-      });
+      .catch(err => logStatus("Error evaluating answers: " + err));
     });
   </script>
 </body>
